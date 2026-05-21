@@ -1,0 +1,6 @@
+[
+  { "id": "ai", "name": "AI", "label": "All Inclusive" },
+  { "id": "bb", "name": "BB", "label": "Breakfast" },
+  { "id": "fb", "name": "FB", "label": "Full Board" },
+  { "id": "hb", "name": "HB", "label": "Half Board" }
+]
