@@ -1,11 +1,5 @@
-import {
-  Bell,
-  CircleUser,
-  Globe,
-  Minus,
-  TrendingDown,
-  TrendingUp,
-} from 'lucide-react'
+import { Bell, Globe, Minus, TrendingDown, TrendingUp } from 'lucide-react'
+import { ProfileMenu } from '@/components/ProfileMenu'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
 
@@ -86,15 +80,7 @@ const Navbar = () => {
             <Bell className="size-5" />
           </Button>
 
-          <Button
-            variant="ghost"
-            size="icon"
-            className="text-muted-foreground hover:text-foreground"
-            type="button"
-            aria-label="Profil"
-          >
-            <CircleUser className="size-6" strokeWidth={1.5} />
-          </Button>
+          <ProfileMenu />
         </div>
       </nav>
 
