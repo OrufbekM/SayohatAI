@@ -1,12 +1,31 @@
-import React from 'react'
-import { Button } from "@/components/ui/button"
-
+import { BrowserRouter, Route, Routes } from 'react-router-dom'
+import { AuthProvider } from '@/hooks/Auth'
+import { AuthPage } from '@/Auth/AuthPage'
+import { GuestRoute } from '@/Auth/GuestRoute'
+import { ProtectedRoute } from '@/Auth/ProtectedRoute'
+import { AUTH_LOGIN_PATH, AUTH_REGISTER_PATH } from '@/Auth/routes'
+import { HomePage } from '@/pages/HomePage'
+import { ToursProvider } from '@/hooks/Tours'
 
 const App = () => {
   return (
-    <div>
-    <Button variant="outline">Bosish</Button>
-    </div>
+    <BrowserRouter>
+      <AuthProvider>
+        <ToursProvider>
+          <Routes>
+            <Route element={<GuestRoute />}>
+              <Route path={AUTH_LOGIN_PATH} element={<AuthPage />} />
+              <Route path={AUTH_REGISTER_PATH} element={<AuthPage />} />
+            </Route>
+
+            <Route element={<ProtectedRoute />}>
+              <Route path="/" element={<HomePage />} />
+              <Route path="*" element={<HomePage />} />
+            </Route>
+          </Routes>
+        </ToursProvider>
+      </AuthProvider>
+    </BrowserRouter>
   )
 }
 
