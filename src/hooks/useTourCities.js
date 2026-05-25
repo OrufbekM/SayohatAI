@@ -1,17 +1,20 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { ApiError } from '@/services/api-client'
+import { getCitiesForCountry, getCountryName } from '@/lib/travel-catalog'
 import { normalizeTourOptions } from '@/services/tour-catalog'
 import { fetchTourCities } from '@/services/tours-service'
 import { useAuth } from '@/hooks/Auth'
 
-export function useTourCities(countryName) {
+export function useTourCities(countryId) {
   const { token } = useAuth()
+  const catalogCities = useMemo(() => getCitiesForCountry(countryId), [countryId])
+  const countryName = useMemo(() => getCountryName(countryId), [countryId])
   const [cities, setCities] = useState([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
   const load = useCallback(async () => {
-    if (!countryName) {
+    if (!countryId) {
       setCities([])
       setLoading(false)
       setError('')
@@ -22,25 +25,23 @@ export function useTourCities(countryName) {
     setError('')
 
     try {
-      const data = await fetchTourCities(countryName, token)
+      const data = countryName ? await fetchTourCities(countryName, token) : []
       const normalized = normalizeTourOptions(data)
-      setCities(normalized)
+      setCities(normalized.length > 0 ? normalized : catalogCities)
     } catch (err) {
-      setCities([])
+      setCities(catalogCities)
       if (err instanceof ApiError) {
         setError(err.message)
-      } else if (err instanceof TypeError) {
-        setError('Shaharlar ro\'yxatini yuklab bo\'lmadi')
-      } else {
+      } else if (!(err instanceof TypeError)) {
         setError('Shaharlar ro\'yxatini yuklab bo\'lmadi')
       }
     } finally {
       setLoading(false)
     }
-  }, [countryName, token])
+  }, [countryId, countryName, token, catalogCities])
 
   useEffect(() => {
-    load()
+    ;(async () => { await load() })()
   }, [load])
 
   return { cities, loading, error, refetch: load }

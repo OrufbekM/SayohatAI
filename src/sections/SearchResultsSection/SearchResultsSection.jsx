@@ -34,13 +34,11 @@ function buildActiveFilters(ctx) {
     }
   }
 
-  if (ctx.hotelNameQuery?.trim()) {
-    tags.push({
-      id: 'hotel-query',
-      type: 'hotelQuery',
-      valueId: 'hotel-query',
-      label: ctx.hotelNameQuery.trim(),
-    })
+  for (const hotelId of ctx.selectedHotelIds) {
+    const hotel = ctx.hotels.find((h) => h.id === hotelId)
+    if (hotel) {
+      tags.push({ id: `hotel-${hotel.id}`, type: 'hotel', valueId: hotel.id, label: hotel.name })
+    }
   }
 
   return tags
@@ -58,7 +56,8 @@ export function SearchResultsSection() {
       search.selectedCityIds,
       search.selectedStarIds,
       search.selectedMealIds,
-      search.hotelNameQuery,
+      search.selectedHotelIds,
+      search.hotels,
     ],
   )
 
@@ -69,8 +68,17 @@ export function SearchResultsSection() {
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <h2 className="text-2xl font-bold tracking-tight text-foreground">Qidiruv natijalari</h2>
         <p className="text-sm text-muted-foreground">
-          {search.loading ? (
-            'Qidirilmoqda...'
+          {search.streaming ? (
+            <>
+              Qidirilmoqda
+              {search.results.length > 0 && (
+                <>
+                  {' '}
+                  — <span className="font-semibold text-foreground">{search.results.length}</span> ta
+                  topildi
+                </>
+              )}
+            </>
           ) : (
             <>
               <span className="font-semibold text-foreground">{search.total}</span> ta taklif topildi
@@ -78,6 +86,12 @@ export function SearchResultsSection() {
           )}
         </p>
       </div>
+
+      {search.streaming && search.streamStatus && (
+        <p className="rounded-lg border border-orange-200 bg-orange-50 px-3 py-2 text-sm text-orange-800">
+          {search.streamStatus}
+        </p>
+      )}
 
       {search.error && (
         <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">{search.error}</p>
@@ -91,26 +105,14 @@ export function SearchResultsSection() {
               className="inline-flex items-center gap-1.5 rounded-full border border-black/[0.08] bg-white py-1 pr-1.5 pl-3 text-sm font-medium text-foreground"
             >
               {tag.label}
-              {tag.type !== 'hotelQuery' && (
-                <button
-                  type="button"
-                  onClick={() => search.removeFilter(tag.type, tag.valueId)}
-                  className="flex size-5 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                  aria-label={`${tag.label} filtrini olib tashlash`}
-                >
-                  <X className="size-3.5" />
-                </button>
-              )}
-              {tag.type === 'hotelQuery' && (
-                <button
-                  type="button"
-                  onClick={() => search.setHotelNameQuery('')}
-                  className="flex size-5 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                  aria-label="Mehmonxona qidiruvini olib tashlash"
-                >
-                  <X className="size-3.5" />
-                </button>
-              )}
+              <button
+                type="button"
+                onClick={() => search.removeFilter(tag.type, tag.valueId)}
+                className="flex size-5 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                aria-label={`${tag.label} filtrini olib tashlash`}
+              >
+                <X className="size-3.5" />
+              </button>
             </span>
           ))}
           <button
@@ -123,7 +125,7 @@ export function SearchResultsSection() {
         </div>
       )}
 
-      {!search.loading && !search.error && search.results.length === 0 && (
+      {!search.streaming && !search.error && search.results.length === 0 && (
         <p className="rounded-lg border border-black/[0.06] bg-white px-4 py-8 text-center text-sm text-muted-foreground">
           Tanlangan filtrlar bo&apos;yicha taklif topilmadi
         </p>
@@ -135,7 +137,7 @@ export function SearchResultsSection() {
         ))}
       </div>
 
-      {!search.loading && search.totalPages > 1 && (
+      {!search.streaming && search.totalPages > 1 && (
         <ResultsPagination
           page={search.page}
           totalPages={search.totalPages}
