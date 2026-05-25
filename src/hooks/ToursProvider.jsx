@@ -1,15 +1,17 @@
-import { createContext, useCallback, useContext, useMemo, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { ApiError } from '@/services/api-client'
 import { getOptionName } from '@/services/tour-catalog'
+import { buildParserStreamParams, streamParserTours } from '@/services/parser-stream-service'
 import {
   applyClientFilters,
-  buildTourSearchParams,
   mapTourToOffer,
-  searchTours,
+  TOURS_PAGE_SIZE,
 } from '@/services/tours-service'
 import { useAuth } from '@/hooks/Auth'
+import { filterHotelsByStars, getDepartureCities } from '@/lib/travel-catalog'
 import { useTourCities } from '@/hooks/useTourCities'
 import { useTourCountries } from '@/hooks/useTourCountries'
+import { useTourHotels } from '@/hooks/useTourHotels'
 import { useTourRegions } from '@/hooks/useTourRegions'
 
 const ToursContext = createContext(null)
@@ -19,8 +21,9 @@ export function ToursProvider({ children }) {
   const { countries, loading: countriesLoading, error: countriesError } = useTourCountries()
   const { regions, loading: regionsLoading, error: regionsError } = useTourRegions()
 
-  const [departureCity, setDepartureCity] = useState('')
+  const [departureCityId, setDepartureCityId] = useState('toshkent')
   const [toCountryId, setToCountryId] = useState('')
+  const departureCities = useMemo(() => getDepartureCities(), [])
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
   const [nightsFrom, setNightsFrom] = useState('7')
@@ -29,7 +32,7 @@ export function ToursProvider({ children }) {
   const [childrenCount, setChildrenCount] = useState('0')
   const [priceMin, setPriceMin] = useState('')
   const [priceMax, setPriceMax] = useState('')
-  const [hotelNameQuery, setHotelNameQuery] = useState('')
+  const [selectedHotelIds, setSelectedHotelIds] = useState(() => new Set())
 
   const [selectedCityIds, setSelectedCityIds] = useState(() => new Set())
   const [selectedStarIds, setSelectedStarIds] = useState(() => new Set())
@@ -42,20 +45,42 @@ export function ToursProvider({ children }) {
   const [total, setTotal] = useState(0)
   const [totalPages, setTotalPages] = useState(1)
   const [loading, setLoading] = useState(false)
+  const [streaming, setStreaming] = useState(false)
+  const [streamStatus, setStreamStatus] = useState('')
   const [error, setError] = useState('')
+  const streamAbortRef = useRef(null)
 
-  const countryName = getOptionName(countries, toCountryId)
   const {
     cities,
     loading: citiesLoading,
     error: citiesError,
-  } = useTourCities(countryName)
+  } = useTourCities(toCountryId)
+  const { hotels: allHotels, loading: hotelsLoading, error: hotelsError } = useTourHotels(toCountryId)
+
+  const hotels = useMemo(
+    () => filterHotelsByStars(allHotels, selectedStarIds),
+    [allHotels, selectedStarIds],
+  )
 
   const catalog = useMemo(() => ({ countries, cities }), [countries, cities])
 
+  useEffect(() => {
+    if (selectedStarIds.size === 0) return
+    setSelectedHotelIds((prev) => {
+      const next = new Set(
+        [...prev].filter((id) => {
+          const hotel = allHotels.find((h) => h.id === id)
+          return hotel && selectedStarIds.has(String(hotel.stars))
+        }),
+      )
+      if (next.size === prev.size && [...next].every((id) => prev.has(id))) return prev
+      return next
+    })
+  }, [selectedStarIds, allHotels])
+
   const filterState = useMemo(
     () => ({
-      departureCity,
+      departureCityId,
       toCountryId,
       dateFrom,
       dateTo,
@@ -65,13 +90,14 @@ export function ToursProvider({ children }) {
       children: childrenCount,
       priceMin,
       priceMax,
-      hotelNameQuery,
+      selectedHotelIds,
+      hotelOptions: allHotels,
       selectedCityIds,
       selectedStarIds,
       selectedMealIds,
     }),
     [
-      departureCity,
+      departureCityId,
       toCountryId,
       dateFrom,
       dateTo,
@@ -81,34 +107,93 @@ export function ToursProvider({ children }) {
       childrenCount,
       priceMin,
       priceMax,
-      hotelNameQuery,
+      selectedHotelIds,
+      hotels,
       selectedCityIds,
       selectedStarIds,
       selectedMealIds,
     ],
   )
 
+  const appendTours = useCallback(
+    (rawTours) => {
+      const filtered = applyClientFilters(rawTours, filterState, cities)
+      if (filtered.length === 0) return
+
+      setResults((prev) => {
+        const seen = new Set(prev.map((o) => o.id))
+        const next = [...prev]
+        for (const tour of filtered) {
+          const offer = mapTourToOffer(tour)
+          if (!seen.has(offer.id)) {
+            seen.add(offer.id)
+            next.push(offer)
+          }
+        }
+        return next
+      })
+      setTotal((prev) => prev + filtered.length)
+    },
+    [filterState, cities],
+  )
+
   const fetchTours = useCallback(
     async (pageNum) => {
+      streamAbortRef.current?.abort()
+      const abortController = new AbortController()
+      streamAbortRef.current = abortController
+
       setLoading(true)
+      setStreaming(true)
       setError('')
+      setStreamStatus('Operatorlardan qidirilmoqda...')
+      setResults([])
+      setTotal(0)
+      setTotalPages(1)
+
+      const { path, params } = buildParserStreamParams(filterState, pageNum, {
+        countries: catalog.countries,
+        cities: catalog.cities,
+        limit: TOURS_PAGE_SIZE,
+        sortBy: 'price',
+      })
 
       try {
-        const params = buildTourSearchParams(filterState, pageNum, catalog)
-        const response = await searchTours(params, token)
-        const rawTours = response.data ?? []
-        const filtered = applyClientFilters(rawTours, filterState, cities)
-        const offers = filtered.map(mapTourToOffer)
-
-        setResults(offers)
-        setTotal(
-          filtered.length > 0 && filtered.length !== rawTours.length
-            ? filtered.length
-            : (response.meta?.total ?? filtered.length),
-        )
-        setTotalPages(response.meta?.totalPages ?? 1)
-        setPage(response.meta?.page ?? pageNum)
+        await streamParserTours({
+          path,
+          params,
+          token,
+          signal: abortController.signal,
+          onProgress: (event) => {
+            const source =
+              event.source === 'kompas'
+                ? 'Kompas'
+                : event.source === 'easybooking'
+                  ? 'EasyBooking'
+                  : ''
+            const text = event.message ?? ''
+            setStreamStatus(source ? `${source}: ${text}` : text)
+          },
+          onTour: (tour) => {
+            appendTours([tour])
+          },
+          onResult: (payload) => {
+            const rawTours = payload.tours ?? []
+            if (rawTours.length > 0) {
+              const filtered = applyClientFilters(rawTours, filterState, cities)
+              const offers = filtered.map(mapTourToOffer)
+              setResults(offers)
+              setTotal(payload.total ?? filtered.length)
+            } else if (payload.total != null) {
+              setTotal(payload.total)
+            }
+            setTotalPages(payload.totalPages ?? 1)
+            setPage(payload.page ?? pageNum)
+          },
+        })
       } catch (err) {
+        if (err?.name === 'AbortError') return
+
         setResults([])
         setTotal(0)
         setTotalPages(1)
@@ -120,16 +205,31 @@ export function ToursProvider({ children }) {
           setError('Qidiruv amalga oshmadi')
         }
       } finally {
+        if (streamAbortRef.current === abortController) {
+          streamAbortRef.current = null
+        }
+        setStreaming(false)
+        setStreamStatus('')
         setLoading(false)
       }
     },
-    [filterState, catalog, cities, token],
+    [filterState, catalog, cities, token, appendTours],
   )
 
   const setToCountry = useCallback((countryId) => {
     setToCountryId(countryId)
     setSelectedCityIds(new Set())
     setSelectedStarIds(new Set())
+    setSelectedHotelIds(new Set())
+  }, [])
+
+  const toggleHotel = useCallback((hotelId, checked) => {
+    setSelectedHotelIds((prev) => {
+      const next = new Set(prev)
+      if (checked) next.add(hotelId)
+      else next.delete(hotelId)
+      return next
+    })
   }, [])
 
   const toggleCity = useCallback((cityId, checked) => {
@@ -165,8 +265,9 @@ export function ToursProvider({ children }) {
       else if (type === 'city') toggleCity(valueId, false)
       else if (type === 'star') toggleStar(valueId)
       else if (type === 'meal') toggleMeal(valueId, false)
+      else if (type === 'hotel') toggleHotel(valueId, false)
     },
-    [setToCountry, toggleCity, toggleStar, toggleMeal],
+    [setToCountry, toggleCity, toggleStar, toggleMeal, toggleHotel],
   )
 
   const clearFilters = useCallback(() => {
@@ -174,7 +275,7 @@ export function ToursProvider({ children }) {
     setSelectedCityIds(new Set())
     setSelectedStarIds(new Set())
     setSelectedMealIds(new Set())
-    setHotelNameQuery('')
+    setSelectedHotelIds(new Set())
   }, [])
 
   const submitSearch = useCallback(() => {
@@ -203,8 +304,9 @@ export function ToursProvider({ children }) {
       regions,
       regionsLoading,
       regionsError,
-      departureCity,
-      setDepartureCity,
+      departureCities,
+      departureCityId,
+      setDepartureCityId,
       toCountryId,
       setToCountry,
       dateFrom,
@@ -223,8 +325,11 @@ export function ToursProvider({ children }) {
       setPriceMin,
       priceMax,
       setPriceMax,
-      hotelNameQuery,
-      setHotelNameQuery,
+      hotels,
+      hotelsLoading,
+      hotelsError,
+      selectedHotelIds,
+      toggleHotel,
       selectedCityIds,
       toggleCity,
       selectedStarIds,
@@ -242,6 +347,8 @@ export function ToursProvider({ children }) {
       total,
       totalPages,
       loading,
+      streaming,
+      streamStatus,
       error,
       fetchTours,
     }),
@@ -255,7 +362,8 @@ export function ToursProvider({ children }) {
       regions,
       regionsLoading,
       regionsError,
-      departureCity,
+      departureCities,
+      departureCityId,
       toCountryId,
       dateFrom,
       dateTo,
@@ -265,7 +373,12 @@ export function ToursProvider({ children }) {
       childrenCount,
       priceMin,
       priceMax,
-      hotelNameQuery,
+      allHotels,
+      hotels,
+      hotelsLoading,
+      hotelsError,
+      selectedHotelIds,
+      toggleHotel,
       selectedCityIds,
       selectedStarIds,
       selectedMealIds,
@@ -284,6 +397,8 @@ export function ToursProvider({ children }) {
       total,
       totalPages,
       loading,
+      streaming,
+      streamStatus,
       error,
       fetchTours,
     ],

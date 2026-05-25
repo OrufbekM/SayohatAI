@@ -72,23 +72,22 @@ export function buildTourSearchParams(
   const hotelQuery = filters.hotelNameQuery?.trim()
   if (hotelQuery) params.hotelName = hotelQuery
 
-  return params
-}
+  if (filters.selectedHotelIds?.size === 1) {
+    const hotel = filters.hotelOptions?.find((h) => h.id === [...filters.selectedHotelIds][0])
+    if (hotel?.name) params.hotelName = hotel.name
+  }
 
-function needsClientFilter(filters) {
-  return (
-    filters.selectedCityIds.size > 1 ||
-    filters.selectedStarIds.size > 1 ||
-    filters.selectedMealIds.size > 1
-  )
+  return params
 }
 
 function matchesClientFilters(tour, filters, cities = []) {
   const tourCity = (tour.city ?? '').toLowerCase()
   const tourStars = String(tour.hotelStars ?? tour.stars ?? '')
-  const tourMeal = (tour.mealType ?? '').toUpperCase()
+  const tourMeal = (tour.mealType ?? tour.meal ?? '').toUpperCase()
+  const tourHotel = (tour.hotelName ?? tour.hotel ?? '').toLowerCase()
+  const tourPrice = tour.pricePerPerson ?? tour.price ?? tour.totalPrice
 
-  if (filters.selectedCityIds.size > 1) {
+  if (filters.selectedCityIds?.size > 0) {
     const names = [...filters.selectedCityIds]
       .map((id) => getOptionName(cities, id))
       .filter(Boolean)
@@ -98,22 +97,46 @@ function matchesClientFilters(tour, filters, cities = []) {
     }
   }
 
-  if (filters.selectedStarIds.size > 1) {
+  if (filters.selectedStarIds?.size > 0) {
     if (!filters.selectedStarIds.has(tourStars)) return false
   }
 
-  if (filters.selectedMealIds.size > 1) {
+  if (filters.selectedMealIds?.size > 0) {
     const codes = [...filters.selectedMealIds]
       .map((id) => findMeal(id)?.name)
       .filter(Boolean)
+      .map((c) => c.toUpperCase())
     if (!codes.includes(tourMeal)) return false
   }
+
+  if (filters.selectedHotelIds?.size > 0) {
+    const names = [...filters.selectedHotelIds]
+      .map((id) => filters.hotelOptions?.find((h) => h.id === id)?.name)
+      .filter(Boolean)
+      .map((n) => n.toLowerCase())
+    if (!names.some((name) => tourHotel.includes(name) || name.includes(tourHotel))) {
+      return false
+    }
+  }
+
+  const priceMin = parsePositiveNumber(filters.priceMin)
+  const priceMax = parsePositiveNumber(filters.priceMax)
+  if (priceMin !== undefined && tourPrice != null && tourPrice < priceMin) return false
+  if (priceMax !== undefined && tourPrice != null && tourPrice > priceMax) return false
 
   return true
 }
 
 export function applyClientFilters(tours, filters, cities = []) {
-  if (!needsClientFilter(filters)) return tours
+  const hasFilters =
+    filters.selectedCityIds?.size > 0 ||
+    filters.selectedStarIds?.size > 0 ||
+    filters.selectedMealIds?.size > 0 ||
+    filters.selectedHotelIds?.size > 0 ||
+    filters.priceMin ||
+    filters.priceMax
+
+  if (!hasFilters) return tours
   return tours.filter((tour) => matchesClientFilters(tour, filters, cities))
 }
 
@@ -141,19 +164,23 @@ function formatOccupancy(adults, children) {
 }
 
 export function mapTourToOffer(tour) {
-  const mealCode = (tour.mealType ?? '').toUpperCase()
+  const mealCode = (tour.mealType ?? tour.meal ?? '').toUpperCase()
   const adults = tour.adults ?? 2
   const children = tour.children ?? 0
   const price = tour.pricePerPerson ?? tour.price ?? tour.totalPrice ?? 0
   const currency = tour.currency ?? 'UZS'
-  const durationDays = tour.durationDays ?? tour.nights
+  const durationDays = tour.durationDays ?? tour.nights ?? tour.duration
+  const hotelName = tour.hotelName ?? tour.hotel ?? 'Mehmonxona'
 
   return {
-    id: tour.id ?? tour._id ?? `${tour.hotelName}-${tour.departureDate}`,
+    id:
+      tour.id ??
+      tour._id ??
+      `${hotelName}-${tour.departureDate ?? tour.dateFrom ?? tour.checkIn}-${tour.source ?? ''}`,
     badge: tour.isCheapest ? 'eng-arzon' : tour.isRecommended ? 'tavsiya' : undefined,
     badgeLabel: tour.isCheapest ? 'Eng arzon' : tour.isRecommended ? 'Tavsiya etiladi' : undefined,
     stars: Number(tour.hotelStars ?? tour.stars ?? 0),
-    hotelName: tour.hotelName ?? 'Mehmonxona',
+    hotelName,
     location: [tour.city, tour.country, tour.region].filter(Boolean).join(', ') || tour.location || '',
     flightInfo: tour.flightInfo ?? [tour.country, tour.city, tour.departureCity && `${tour.departureCity}dan`]
       .filter(Boolean)

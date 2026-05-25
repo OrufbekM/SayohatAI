@@ -10,8 +10,9 @@ import { SearchSelectField } from './components/SearchSelectField'
 
 export function SearchSection() {
   const {
-    departureCity,
-    setDepartureCity,
+    departureCities,
+    departureCityId,
+    setDepartureCityId,
     toCountryId,
     setToCountry,
     countries,
@@ -34,12 +35,13 @@ export function SearchSection() {
         <CardContent className="overflow-visible p-4 sm:p-5">
           <div className="flex flex-col gap-4 xl:flex-row xl:items-end">
             <div className="grid flex-1 grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 xl:items-start">
-              <SearchField
+              <SearchSelectField
                 label="Qayerdan"
                 icon={Plane}
-                placeholder="Masalan: Toshkent"
-                value={departureCity}
-                onChange={(e) => setDepartureCity(e.target.value)}
+                placeholder="Shahar tanlang"
+                value={departureCityId}
+                onValueChange={setDepartureCityId}
+                options={departureCities}
               />
               <SearchSelectField
                 label="Qayerga"
