@@ -1,4 +1,4 @@
-import { ApiError } from '@/services/api-client'
+import { API_BASE_URL, ApiError } from '@/services/api-client'
 import {
   getDepartureCityName,
   getStateToByCountryId,
@@ -11,8 +11,6 @@ function parsePositiveNumber(value) {
   const num = Number(value)
   return Number.isFinite(num) && num >= 0 ? num : undefined
 }
-
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://64.226.103.10:4000/api'
 
 const STATE_TO_CODES = {
   turkiya: 'TR',
