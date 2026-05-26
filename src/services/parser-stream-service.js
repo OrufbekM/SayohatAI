@@ -1,143 +1,83 @@
 import { API_BASE_URL, ApiError } from '@/services/api-client'
+import { snapNightsForParser } from '@/lib/parser-filters'
 import {
-  getDepartureCityName,
-  getStateToByCountryId,
-  getTownFromByCityId,
+  getParserPathForCountry,
+  getParserStateToId,
+  getParserTownFromId,
+  isParserDepartureSupported,
+  isParserDestinationSupported,
 } from '@/lib/travel-catalog'
-import { findMeal } from '@/lib/filters'
-import { getOptionName } from '@/services/tour-catalog'
-
-function parsePositiveNumber(value) {
-  const num = Number(value)
-  return Number.isFinite(num) && num >= 0 ? num : undefined
-}
-
-const STATE_TO_CODES = {
-  turkiya: 'TR',
-  turkey: 'TR',
-  misr: 'EG',
-  egypt: 'EG',
-  baa: 'AE',
-  'united-arab-emirates': 'AE',
-  tailand: 'TH',
-  thailand: 'TH',
-  malayziya: 'MY',
-  malaysia: 'MY',
-  'sri-lanka': 'LK',
-  'sri-lanka-': 'LK',
-  qatar: 'QA',
-  oman: 'OM',
-  maldiv: 'MV',
-  maldives: 'MV',
-  gruziya: 'GE',
-  georgia: 'GE',
-  azerbayjan: 'AZ',
-  azerbaijan: 'AZ',
-  'saudi-arabia': 'SA',
-  'saudiya-arabistoni': 'SA',
-  vietnam: 'VN',
-  indoneziya: 'ID',
-  indonesia: 'ID',
-  xitoy: 'CN',
-  china: 'CN',
-}
 
 function parsePositiveInt(value) {
   const num = Number.parseInt(String(value), 10)
   return Number.isFinite(num) && num >= 0 ? num : undefined
 }
 
-function resolveTownFrom(departureCityId, departureCityName) {
-  const fromCatalog = getTownFromByCityId(departureCityId)
-  if (fromCatalog) return fromCatalog
-  const raw = departureCityName?.trim()
-  if (!raw) return undefined
-  if (/^[A-Z]{2,4}$/.test(raw)) return raw.toUpperCase()
-  return undefined
-}
-
-function resolveStateTo(countryName, countryId) {
-  const fromCatalog = getStateToByCountryId(countryId)
-  if (fromCatalog) return fromCatalog
-  if (!countryName && !countryId) return undefined
-  const idKey = String(countryId ?? '')
-    .toLowerCase()
-    .trim()
-  if (/^[A-Z]{2,3}$/i.test(idKey)) return idKey.toUpperCase()
-  if (STATE_TO_CODES[idKey]) return STATE_TO_CODES[idKey]
-
-  const nameKey = String(countryName ?? '')
-    .toLowerCase()
-    .trim()
-    .replace(/[''`]/g, '')
-    .replace(/\s+/g, '-')
-    .replace(/[^a-z0-9-]/g, '')
-  if (STATE_TO_CODES[nameKey]) return STATE_TO_CODES[nameKey]
-  if (/^[A-Z]{2,3}$/i.test(countryName)) return countryName.toUpperCase()
-  return undefined
-}
-
+/**
+ * FILTER_REFERENCE.txt dagi ruxsat etilgan query parametrlar.
+ * Shahar/yulduz/mehmonxona — faqat client filtri; parser API da yo‘q.
+ */
 export function buildParserStreamParams(
   filters,
   page = 1,
-  { countries = [], cities = [], limit = 10, sortBy = 'price', operator = 'all' } = {},
+  { limit = 20, sortBy, operator } = {},
 ) {
-  const params = { page, limit, sortBy }
+  const countryOperator =
+    operator ?? (filters.toCountryId ? getParserPathForCountry(filters.toCountryId) : 'stream')
+  const parserOperator = countryOperator === 'easybooking' ? 'easybooking' : 'kompas'
+  const resolvedSort = sortBy ?? filters.sortBy ?? 'price'
+  const params = { page, limit, sortBy: resolvedSort }
 
-  const countryName = getOptionName(countries, filters.toCountryId)
-  const stateTo = resolveStateTo(countryName, filters.toCountryId)
-  if (stateTo) params.stateTo = stateTo
+  const townFrom = getParserTownFromId(filters.departureCityId, parserOperator)
+  if (townFrom != null) params.townFrom = townFrom
 
-  const departureName = getDepartureCityName(filters.departureCityId)
-  const townFrom = resolveTownFrom(filters.departureCityId, departureName)
-  if (townFrom) params.townFrom = townFrom
+  const stateTo = getParserStateToId(filters.toCountryId, parserOperator)
+  if (stateTo != null) params.stateTo = stateTo
 
   if (filters.dateFrom) params.dateFrom = filters.dateFrom
   if (filters.dateTo) params.dateTo = filters.dateTo
 
-  const nightsFrom = parsePositiveInt(filters.nightsFrom)
-  const nightsTo = parsePositiveInt(filters.nightsTo)
+  const nightsFrom = snapNightsForParser(filters.nightsFrom, parserOperator)
+  const nightsTo = snapNightsForParser(filters.nightsTo, parserOperator)
   if (nightsFrom !== undefined) params.nightsFrom = nightsFrom
   if (nightsTo !== undefined) params.nightsTo = nightsTo
 
   const adults = parsePositiveInt(filters.adults)
   const children = parsePositiveInt(filters.children)
-  if (adults !== undefined && adults > 0) params.adults = adults
-  if (children !== undefined && children > 0) params.children = children
-
-  const priceMin = parsePositiveNumber(filters.priceMin)
-  const priceMax = parsePositiveNumber(filters.priceMax)
-  if (priceMin !== undefined) params.priceMin = priceMin
-  if (priceMax !== undefined) params.priceMax = priceMax
-
-  if (filters.selectedCityIds?.size === 1) {
-    const city = getOptionName(cities, [...filters.selectedCityIds][0])
-    if (city) params.city = city
+  if (adults !== undefined && adults >= 1 && adults <= 4) params.adults = adults
+  if (children !== undefined && children >= 0 && children <= 3) {
+    params.children = children
   }
 
-  if (filters.selectedStarIds?.size === 1) {
-    const starId = [...filters.selectedStarIds][0]
-    if (['3', '4', '5'].includes(starId)) {
-      params.stars = Number(starId)
-      params.hotelStars = Number(starId)
-    }
+  if (countryOperator === 'easybooking') {
+    return { path: '/parser/easybooking/stream', params }
   }
-
-  if (filters.selectedMealIds?.size === 1) {
-    const meal = findMeal([...filters.selectedMealIds][0])
-    if (meal?.name) params.meal = meal.name
-  }
-
-  if (filters.selectedHotelIds?.size === 1) {
-    const hotel = filters.hotelOptions?.find((h) => h.id === [...filters.selectedHotelIds][0])
-    if (hotel?.name) params.hotelName = hotel.name
-  }
-
-  if (operator === 'kompas') {
+  if (countryOperator === 'kompas') {
     return { path: '/parser/kompas/stream', params }
   }
 
   return { path: '/parser/stream', params }
+}
+
+export function validateParserSearchFilters(filters) {
+  const parserOperator =
+    filters.toCountryId && getParserPathForCountry(filters.toCountryId) === 'easybooking'
+      ? 'easybooking'
+      : 'kompas'
+
+  if (!filters.departureCityId) {
+    return 'Qayerdan shaharini tanlang'
+  }
+  if (!isParserDepartureSupported(filters.departureCityId, parserOperator)) {
+    return 'Tanlangan shahar uchun parser ID topilmadi (FILTER_REFERENCE). Boshqa shahar tanlang'
+  }
+  if (!filters.toCountryId) {
+    return 'Qayerga davlatini tanlang'
+  }
+  if (!isParserDestinationSupported(filters.toCountryId, parserOperator)) {
+    return 'Bu davlat parserda qo‘llab-quvvatlanmaydi. Maldiv, Mavrikiy, Seyshel yoki Ozarbayjonni tanlang'
+  }
+  return null
 }
 
 function buildStreamUrl(path, params, token) {
@@ -153,27 +93,74 @@ function buildStreamUrl(path, params, token) {
   return { url, headers: token ? { Authorization: `Bearer ${token}` } : {} }
 }
 
-function extractSseEvents(buffer) {
-  const events = []
-  let rest = buffer
+/** Katta `result` event — JSON.parse butun qatorga sig‘masa, qavslarni hisoblab ajratish */
+function extractResultPayloadFromBuffer(buffer) {
+  const markerIdx = buffer.lastIndexOf('"type":"result"')
+  if (markerIdx === -1) return null
 
-  while (true) {
-    const boundary = rest.indexOf('\n\n')
-    if (boundary === -1) break
+  const braceStart = buffer.lastIndexOf('{', markerIdx)
+  if (braceStart === -1) return null
 
-    const rawBlock = rest.slice(0, boundary)
-    rest = rest.slice(boundary + 2)
+  let depth = 0
+  let inString = false
+  let escaped = false
 
-    const dataLines = rawBlock
-      .split('\n')
-      .filter((line) => line.startsWith('data:'))
-      .map((line) => line.slice(5).trim())
+  for (let i = braceStart; i < buffer.length; i += 1) {
+    const char = buffer[i]
 
-    if (dataLines.length === 0) continue
-    events.push(dataLines.join('\n'))
+    if (inString) {
+      if (escaped) escaped = false
+      else if (char === '\\') escaped = true
+      else if (char === '"') inString = false
+      continue
+    }
+
+    if (char === '"') inString = true
+    else if (char === '{') depth += 1
+    else if (char === '}') {
+      depth -= 1
+      if (depth === 0) {
+        try {
+          const payload = JSON.parse(buffer.slice(braceStart, i + 1))
+          if (payload?.type === 'result') return payload
+        } catch {
+          return null
+        }
+        return null
+      }
+    }
   }
 
-  return { events, rest }
+  return null
+}
+
+/** Kichik SSE eventlar (progress, tour, error) — result dan alohida */
+function parseSmallSseEvents(text) {
+  const events = []
+  const normalized = text.replace(/\r\n/g, '\n')
+
+  for (const block of normalized.split(/\n\n+/)) {
+    if (block.includes('"type":"result"')) continue
+
+    const dataLines = block
+      .split('\n')
+      .filter((line) => line.startsWith('data:'))
+      .map((line) => line.slice(5).trimStart())
+
+    if (dataLines.length === 0) continue
+
+    const joined = dataLines.join('\n')
+    if (joined.length > 8000) continue
+
+    try {
+      const payload = JSON.parse(joined)
+      if (payload?.type && payload.type !== 'result') events.push(payload)
+    } catch {
+      /* ignore */
+    }
+  }
+
+  return events
 }
 
 function extractTour(payload) {
@@ -186,7 +173,7 @@ function extractTour(payload) {
   return null
 }
 
-function handleStreamPayload(payload, handlers) {
+function dispatchPayload(payload, handlers) {
   if (!payload?.type) return
 
   switch (payload.type) {
@@ -215,7 +202,6 @@ function handleStreamPayload(payload, handlers) {
 
 /**
  * Server-Sent Events orqali parser stream endpointiga ulanadi.
- * Har bir tour kelganda onTour, oxirida onResult chaqiriladi.
  */
 export async function streamParserTours({ path, params, token, signal, handlers = {} }) {
   const { url, headers } = buildStreamUrl(path, params, token)
@@ -238,36 +224,48 @@ export async function streamParserTours({ path, params, token, signal, handlers 
 
   const reader = response.body.getReader()
   const decoder = new TextDecoder()
-  let buffer = ''
+  let fullText = ''
 
   while (true) {
     const { done, value } = await reader.read()
     if (done) break
 
-    buffer += decoder.decode(value, { stream: true })
-    const { events, rest } = extractSseEvents(buffer)
-    buffer = rest
+    fullText += decoder.decode(value, { stream: true })
 
-    for (const data of events) {
+    const progressMatch = fullText.match(
+      /data:\s*(\{"type":"progress"[\s\S]*?\})\s*(?:\n\n|$)/g,
+    )
+    if (progressMatch?.length) {
       try {
-        const payload = JSON.parse(data)
-        handleStreamPayload(payload, handlers)
+        const last = progressMatch[progressMatch.length - 1]
+        const json = last.replace(/^data:\s*/, '').trim()
+        dispatchPayload(JSON.parse(json), handlers)
       } catch {
-        /* skip malformed chunks */
+        /* ignore */
       }
     }
   }
 
-  if (buffer.trim()) {
-    const { events } = extractSseEvents(`${buffer}\n\n`)
-    for (const data of events) {
-      try {
-        const payload = JSON.parse(data)
-        handleStreamPayload(payload, handlers)
-      } catch {
-        /* skip */
+  if (signal?.aborted) return
+
+  const resultPayload = extractResultPayloadFromBuffer(fullText)
+  if (resultPayload) {
+    handlers.onResult?.(resultPayload)
+  } else {
+    try {
+      const lastData = fullText.lastIndexOf('data:')
+      if (lastData !== -1) {
+        const json = fullText.slice(lastData + 5).trim()
+        const payload = JSON.parse(json)
+        if (payload?.type === 'result') handlers.onResult?.(payload)
       }
+    } catch {
+      /* ignore */
     }
+  }
+
+  for (const event of parseSmallSseEvents(fullText)) {
+    dispatchPayload(event, handlers)
   }
 
   handlers.onDone?.()

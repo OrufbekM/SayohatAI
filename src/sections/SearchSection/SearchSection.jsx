@@ -1,4 +1,5 @@
-import { Plane, Search } from 'lucide-react'
+import { ArrowUpDown, Plane, Search } from 'lucide-react'
+import { PARSER_SORT_CHOICES } from '@/lib/parser-filters'
 import { useTours } from '@/hooks/Tours'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
@@ -25,6 +26,8 @@ export function SearchSection() {
     setNightsFrom,
     nightsTo,
     setNightsTo,
+    sortBy,
+    setSortBy,
     submitSearch,
     loading,
   } = useTours()
@@ -34,7 +37,7 @@ export function SearchSection() {
       <Card className={cn(PANEL_SURFACE, 'overflow-visible')}>
         <CardContent className="overflow-visible p-4 sm:p-5">
           <div className="flex flex-col gap-4 xl:flex-row xl:items-end">
-            <div className="grid flex-1 grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 xl:items-start">
+            <div className="grid flex-1 grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-7 xl:items-start">
               <SearchSelectField
                 label="Qayerdan"
                 icon={Plane}
@@ -81,6 +84,14 @@ export function SearchSection() {
                 value={nightsTo}
                 onChange={(e) => setNightsTo(e.target.value)}
                 inputClassName="text-center"
+              />
+              <SearchSelectField
+                label="Saralash"
+                icon={ArrowUpDown}
+                placeholder="Saralash"
+                value={sortBy}
+                onValueChange={setSortBy}
+                options={PARSER_SORT_CHOICES}
               />
             </div>
 

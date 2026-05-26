@@ -127,7 +127,11 @@ export function SearchResultsSection() {
 
       {!search.streaming && !search.error && search.results.length === 0 && (
         <p className="rounded-lg border border-black/[0.06] bg-white px-4 py-8 text-center text-sm text-muted-foreground">
-          Tanlangan filtrlar bo&apos;yicha taklif topilmadi
+          {search.rawToursCount > 0 && search.displayFiltersActive
+            ? `API dan ${search.rawToursCount} ta taklif keldi, lekin sidebar filtrlari mos kelmadi. Filtrlarni tozalang yoki boshqa ovqat/mehmonxona tanlang.`
+            : search.total > 0
+              ? `${search.total} ta tur topildi, lekin ro‘yxatni chiqarib bo‘lmadi. Filtrlarni tozalab qayta qidiring.`
+              : 'Tanlangan parametrlar bo‘yicha taklif topilmadi'}
         </p>
       )}
 
