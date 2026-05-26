@@ -67,31 +67,12 @@ export function SearchResultsSection() {
     <section aria-label="Qidiruv natijalari" className="space-y-4">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <h2 className="text-2xl font-bold tracking-tight text-foreground">Qidiruv natijalari</h2>
-        <p className="text-sm text-muted-foreground">
-          {search.streaming ? (
-            <>
-              Qidirilmoqda
-              {search.results.length > 0 && (
-                <>
-                  {' '}
-                  — <span className="font-semibold text-foreground">{search.results.length}</span> ta
-                  topildi
-                </>
-              )}
-            </>
-          ) : (
-            <>
-              <span className="font-semibold text-foreground">{search.total}</span> ta taklif topildi
-            </>
-          )}
-        </p>
+        {!search.streaming && (
+          <p className="text-sm text-muted-foreground">
+            <span className="font-semibold text-foreground">{search.total}</span> ta taklif topildi
+          </p>
+        )}
       </div>
-
-      {search.streaming && search.streamStatus && (
-        <p className="rounded-lg border border-orange-200 bg-orange-50 px-3 py-2 text-sm text-orange-800">
-          {search.streamStatus}
-        </p>
-      )}
 
       {search.error && (
         <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">{search.error}</p>
@@ -125,21 +106,26 @@ export function SearchResultsSection() {
         </div>
       )}
 
+      {search.streaming && (
+        <div className="flex flex-col items-center justify-center gap-3 py-16">
+          <div className="size-8 animate-spin rounded-full border-4 border-orange-200 border-t-orange-500" />
+          <p className="text-sm text-muted-foreground">Qidirilmoqda...</p>
+        </div>
+      )}
+
       {!search.streaming && !search.error && search.results.length === 0 && (
         <p className="rounded-lg border border-black/[0.06] bg-white px-4 py-8 text-center text-sm text-muted-foreground">
-          {search.rawToursCount > 0 && search.displayFiltersActive
-            ? `API dan ${search.rawToursCount} ta taklif keldi, lekin sidebar filtrlari mos kelmadi. Filtrlarni tozalang yoki boshqa ovqat/mehmonxona tanlang.`
-            : search.total > 0
-              ? `${search.total} ta tur topildi, lekin ro‘yxatni chiqarib bo‘lmadi. Filtrlarni tozalab qayta qidiring.`
-              : 'Tanlangan parametrlar bo‘yicha taklif topilmadi'}
+          Tanlangan parametrlar bo'yicha taklif topilmadi
         </p>
       )}
 
-      <div className="space-y-4">
-        {search.results.map((offer) => (
-          <SearchResultCard key={offer.id} offer={offer} />
-        ))}
-      </div>
+      {!search.streaming && (
+        <div className="space-y-4">
+          {search.results.map((offer) => (
+            <SearchResultCard key={offer.id} offer={offer} />
+          ))}
+        </div>
+      )}
 
       {!search.streaming && search.totalPages > 1 && (
         <ResultsPagination

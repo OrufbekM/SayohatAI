@@ -192,7 +192,7 @@ export function ToursProvider({ children }) {
         return
       }
 
-      setStreamStatus('Operatorlardan qidirilmoqda...')
+      setStreamStatus('')
       setRawTours([])
       setTotal(0)
       setTotalPages(1)
