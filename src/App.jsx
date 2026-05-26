@@ -6,12 +6,14 @@ import { ProtectedRoute } from '@/Auth/ProtectedRoute'
 import { AUTH_LOGIN_PATH, AUTH_REGISTER_PATH } from '@/Auth/routes'
 import { HomePage } from '@/pages/HomePage'
 import { ToursProvider } from '@/hooks/Tours'
+import { TopLoader } from './components/TopLoader'
 
 const App = () => {
   return (
     <BrowserRouter>
       <AuthProvider>
         <ToursProvider>
+        <TopLoader />
           <Routes>
             <Route element={<GuestRoute />}>
               <Route path={AUTH_LOGIN_PATH} element={<AuthPage />} />
