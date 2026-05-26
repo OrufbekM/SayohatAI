@@ -1,31 +1,25 @@
-/** O‘zbekistondan uchish shaharlari (Qayerdan) */
+/**
+ * Qayerdan — operator IDlari (FILTER_REFERENCE.txt).
+ * /api/parser/stream — odatda Kompas ID (townFrom=26).
+ * /api/parser/easybooking/stream — EasyBooking ID (townFrom=1853).
+ */
 export const UZBEKISTAN_DEPARTURE_CITIES = [
-  { id: 'toshkent', name: 'Toshkent', townFrom: 'TAS' },
-  { id: 'samarqand', name: 'Samarqand', townFrom: 'SKD' },
-  { id: 'buxoro', name: 'Buxoro', townFrom: 'BHK' },
-  { id: 'namangan', name: 'Namangan', townFrom: 'NMA' },
-  { id: 'fargona', name: 'Farg\'ona', townFrom: 'FEG' },
-  { id: 'andijon', name: 'Andijon', townFrom: 'AZN' },
-  { id: 'nukus', name: 'Nukus', townFrom: 'NCU' },
-  { id: 'qarshi', name: 'Qarshi', townFrom: 'KSQ' },
-  { id: 'termez', name: 'Termiz', townFrom: 'TMJ' },
-  { id: 'navoiy', name: 'Navoiy', townFrom: 'NVI' },
-  { id: 'urganch', name: 'Urganch', townFrom: 'UGC' },
-  { id: 'jizzax', name: 'Jizzax', townFrom: 'JIZ' },
+  { id: 'toshkent', name: 'Toshkent', kompasId: 26, easybookingId: 1853 },
+  { id: 'samarqand', name: 'Samarqand', kompasId: 917, easybookingId: 1949 },
+  { id: 'buxoro', name: 'Buxoro', kompasId: 913 },
+  { id: 'urganch', name: 'Urganch', kompasId: 2071 },
+  { id: 'fargona', name: "Farg'ona", kompasId: 1819 },
 ]
 
-/** Top 10 ta yo‘nalish davlati (Qayerga) */
+/**
+ * Qayerga — FILTER_REFERENCE.txt dagi stateTo IDlari.
+ * /api/parser/stream → Kompas ID; Ozarbayjon → /api/parser/easybooking/stream.
+ */
 export const TOP_DESTINATION_COUNTRIES = [
-  { id: 'tr', name: 'Turkiya', stateTo: 'TR' },
-  { id: 'eg', name: 'Misr', stateTo: 'EG' },
-  { id: 'ae', name: 'BAA (Dubai)', stateTo: 'AE' },
-  { id: 'th', name: 'Tailand', stateTo: 'TH' },
-  { id: 'mv', name: 'Maldiv orollari', stateTo: 'MV' },
-  { id: 'my', name: 'Malayziya', stateTo: 'MY' },
-  { id: 'vn', name: 'Vyetnam', stateTo: 'VN' },
-  { id: 'ge', name: 'Gruziya', stateTo: 'GE' },
-  { id: 'az', name: 'Ozarbayjon', stateTo: 'AZ' },
-  { id: 'qa', name: 'Qatar', stateTo: 'QA' },
+  { id: 'mv', name: 'Maldiv orollari', kompasStateTo: 40, parserPath: 'stream' },
+  { id: 'mu', name: 'Mavrikiy', kompasStateTo: 86, parserPath: 'stream' },
+  { id: 'sc', name: 'Seyshel orollari', kompasStateTo: 77, parserPath: 'stream' },
+  { id: 'az', name: 'Ozarbayjon', easybookingStateTo: 36, parserPath: 'easybooking' },
 ]
 
 const CITIES_BY_COUNTRY = {
@@ -237,12 +231,37 @@ export function getTopDestinationCountries() {
   return TOP_DESTINATION_COUNTRIES
 }
 
-export function getTownFromByCityId(cityId) {
-  return UZBEKISTAN_DEPARTURE_CITIES.find((c) => c.id === cityId)?.townFrom
+/** Parser stream uchun townFrom (raqamli operator ID) */
+export function getParserTownFromId(cityId, operator = 'kompas') {
+  const city = UZBEKISTAN_DEPARTURE_CITIES.find((c) => c.id === cityId)
+  if (!city) return undefined
+  if (operator === 'easybooking') {
+    return city.easybookingId ?? city.kompasId
+  }
+  return city.kompasId ?? city.easybookingId
 }
 
-export function getStateToByCountryId(countryId) {
-  return TOP_DESTINATION_COUNTRIES.find((c) => c.id === countryId)?.stateTo
+/** Parser stream uchun stateTo (raqamli operator ID) */
+export function getParserStateToId(countryId, operator = 'kompas') {
+  const country = TOP_DESTINATION_COUNTRIES.find((c) => c.id === countryId)
+  if (!country) return undefined
+  if (operator === 'easybooking') {
+    return country.easybookingStateTo ?? country.kompasStateTo
+  }
+  return country.kompasStateTo ?? country.easybookingStateTo
+}
+
+export function isParserDestinationSupported(countryId, operator = 'kompas') {
+  return getParserStateToId(countryId, operator) != null
+}
+
+/** Davlat uchun parser endpoint: stream | easybooking | kompas */
+export function getParserPathForCountry(countryId) {
+  return TOP_DESTINATION_COUNTRIES.find((c) => c.id === countryId)?.parserPath ?? 'stream'
+}
+
+export function isParserDepartureSupported(cityId, operator = 'kompas') {
+  return getParserTownFromId(cityId, operator) != null
 }
 
 export function getCitiesForCountry(countryId) {

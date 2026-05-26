@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { ApiError } from '@/services/api-client'
 import { getTopDestinationCountries } from '@/lib/travel-catalog'
-import { normalizeTourOptions } from '@/services/tour-catalog'
 import { fetchTourCountries } from '@/services/tours-service'
 import { useAuth } from '@/hooks/Auth'
 
@@ -18,9 +17,8 @@ export function useTourCountries() {
     setError('')
 
     try {
-      const data = await fetchTourCountries(token)
-      const normalized = normalizeTourOptions(data)
-      setCountries(normalized.length > 0 ? normalized.slice(0, 10) : FALLBACK_COUNTRIES)
+      await fetchTourCountries(token)
+      setCountries(FALLBACK_COUNTRIES)
     } catch (err) {
       setCountries(FALLBACK_COUNTRIES)
       if (err instanceof ApiError) {

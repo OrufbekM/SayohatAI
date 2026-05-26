@@ -1,9 +1,14 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { ApiError } from '@/services/api-client'
 import { getOptionName } from '@/services/tour-catalog'
-import { buildParserStreamParams, streamParserTours } from '@/services/parser-stream-service'
 import {
-  applyClientFilters,
+  buildParserStreamParams,
+  streamParserTours,
+  validateParserSearchFilters,
+} from '@/services/parser-stream-service'
+import {
+  applyDisplayFilters,
+  hasDisplayFilters,
   mapTourToOffer,
   TOURS_PAGE_SIZE,
 } from '@/services/tours-service'
@@ -37,11 +42,12 @@ export function ToursProvider({ children }) {
   const [selectedCityIds, setSelectedCityIds] = useState(() => new Set())
   const [selectedStarIds, setSelectedStarIds] = useState(() => new Set())
   const [selectedMealIds, setSelectedMealIds] = useState(() => new Set())
+  const [sortBy, setSortBy] = useState('price')
 
   const [hasSearched, setHasSearched] = useState(false)
   const [searchKey, setSearchKey] = useState(0)
   const [page, setPage] = useState(1)
-  const [results, setResults] = useState([])
+  const [rawTours, setRawTours] = useState([])
   const [total, setTotal] = useState(0)
   const [totalPages, setTotalPages] = useState(1)
   const [loading, setLoading] = useState(false)
@@ -49,6 +55,7 @@ export function ToursProvider({ children }) {
   const [streamStatus, setStreamStatus] = useState('')
   const [error, setError] = useState('')
   const streamAbortRef = useRef(null)
+  const searchGenerationRef = useRef(0)
 
   const {
     cities,
@@ -95,6 +102,7 @@ export function ToursProvider({ children }) {
       selectedCityIds,
       selectedStarIds,
       selectedMealIds,
+      sortBy,
     }),
     [
       departureCityId,
@@ -108,33 +116,61 @@ export function ToursProvider({ children }) {
       priceMin,
       priceMax,
       selectedHotelIds,
-      hotels,
+      allHotels,
       selectedCityIds,
       selectedStarIds,
       selectedMealIds,
+      sortBy,
     ],
   )
 
-  const appendTours = useCallback(
-    (rawTours) => {
-      const filtered = applyClientFilters(rawTours, filterState, cities)
-      if (filtered.length === 0) return
+  const mapToursToOffers = useCallback((tours) => {
+    const offers = []
+    for (const tour of tours) {
+      try {
+        offers.push(mapTourToOffer(tour))
+      } catch {
+        /* bitta tour xato bo‘lsa qolganlarini ko‘rsatamiz */
+      }
+    }
+    return offers
+  }, [])
 
-      setResults((prev) => {
-        const seen = new Set(prev.map((o) => o.id))
+  const tourDedupeKey = useCallback((tour) => {
+    const room = tour.roomType ?? tour.roomCategory ?? ''
+    return tour.externalId != null
+      ? `${tour.externalId}-${room}`
+      : `${tour.hotelName ?? tour.hotel}-${tour.departureDate ?? ''}-${room}`
+  }, [])
+
+  const results = useMemo(
+    () => mapToursToOffers(applyDisplayFilters(rawTours, filterState, cities)),
+    [rawTours, filterState, cities, mapToursToOffers],
+  )
+
+  const displayFiltersActive = useMemo(() => hasDisplayFilters(filterState), [filterState])
+
+  const appendTours = useCallback(
+    
+    (incoming) => {
+      console.log('appendTours called', incoming?.length)
+
+      if (!incoming?.length) return
+
+      setRawTours((prev) => {
+        const seen = new Set(prev.map(tourDedupeKey))
         const next = [...prev]
-        for (const tour of filtered) {
-          const offer = mapTourToOffer(tour)
-          if (!seen.has(offer.id)) {
-            seen.add(offer.id)
-            next.push(offer)
+        for (const tour of incoming) {
+          const key = tourDedupeKey(tour)
+          if (!seen.has(key)) {
+            seen.add(key)
+            next.push(tour)
           }
         }
         return next
       })
-      setTotal((prev) => prev + filtered.length)
     },
-    [filterState, cities],
+    [tourDedupeKey],
   )
 
   const fetchTours = useCallback(
@@ -142,20 +178,27 @@ export function ToursProvider({ children }) {
       streamAbortRef.current?.abort()
       const abortController = new AbortController()
       streamAbortRef.current = abortController
+      const searchId = searchGenerationRef.current + 1
+      searchGenerationRef.current = searchId
 
       setLoading(true)
       setStreaming(true)
       setError('')
+      const validationError = validateParserSearchFilters(filterState)
+      if (validationError) {
+        setError(validationError)
+        setLoading(false)
+        setStreaming(false)
+        return
+      }
+
       setStreamStatus('Operatorlardan qidirilmoqda...')
-      setResults([])
+      setRawTours([])
       setTotal(0)
       setTotalPages(1)
 
       const { path, params } = buildParserStreamParams(filterState, pageNum, {
-        countries: catalog.countries,
-        cities: catalog.cities,
         limit: TOURS_PAGE_SIZE,
-        sortBy: 'price',
       })
 
       try {
@@ -164,37 +207,32 @@ export function ToursProvider({ children }) {
           params,
           token,
           signal: abortController.signal,
-          onProgress: (event) => {
-            const source =
-              event.source === 'kompas'
-                ? 'Kompas'
-                : event.source === 'easybooking'
-                  ? 'EasyBooking'
-                  : ''
-            const text = event.message ?? ''
-            setStreamStatus(source ? `${source}: ${text}` : text)
-          },
-          onTour: (tour) => {
-            appendTours([tour])
-          },
-          onResult: (payload) => {
-            const rawTours = payload.tours ?? []
-            if (rawTours.length > 0) {
-              const filtered = applyClientFilters(rawTours, filterState, cities)
-              const offers = filtered.map(mapTourToOffer)
-              setResults(offers)
-              setTotal(payload.total ?? filtered.length)
-            } else if (payload.total != null) {
-              setTotal(payload.total)
-            }
-            setTotalPages(payload.totalPages ?? 1)
-            setPage(payload.page ?? pageNum)
+          handlers: {
+            onProgress: (event) => {
+              if (searchId !== searchGenerationRef.current) return
+              const source = event.source === 'kompas' ? 'Kompas' : event.source === 'easybooking' ? 'EasyBooking' : ''
+              const text = event.message ?? ''
+              setStreamStatus(source ? `${source}: ${text}` : text)
+            },
+            onTour: (tour) => {
+              if (searchId !== searchGenerationRef.current) return
+              appendTours([tour])
+            },
+            onResult: (payload) => {
+              if (searchId !== searchGenerationRef.current) return
+              const tours = Array.isArray(payload?.tours) ? payload.tours : []
+              setRawTours(tours)
+              setTotal(payload?.total ?? tours.length)
+              setTotalPages(payload?.totalPages ?? 1)
+              setPage(payload?.page ?? pageNum)
+            },
           },
         })
       } catch (err) {
         if (err?.name === 'AbortError') return
+        if (searchId !== searchGenerationRef.current) return
 
-        setResults([])
+        setRawTours([])
         setTotal(0)
         setTotalPages(1)
         if (err instanceof ApiError) {
@@ -205,6 +243,7 @@ export function ToursProvider({ children }) {
           setError('Qidiruv amalga oshmadi')
         }
       } finally {
+        if (searchId !== searchGenerationRef.current) return
         if (streamAbortRef.current === abortController) {
           streamAbortRef.current = null
         }
@@ -213,8 +252,25 @@ export function ToursProvider({ children }) {
         setLoading(false)
       }
     },
-    [filterState, catalog, cities, token, appendTours],
+    [filterState, token, appendTours],
   )
+
+  const sidebarFiltersKey = useMemo(
+    () =>
+      [
+        [...selectedCityIds].sort().join(','),
+        [...selectedStarIds].sort().join(','),
+        [...selectedMealIds].sort().join(','),
+        [...selectedHotelIds].sort().join(','),
+      ].join('|'),
+    [selectedCityIds, selectedStarIds, selectedMealIds, selectedHotelIds],
+  )
+
+  useEffect(() => {
+    if (!hasSearched) return
+    setPage(1)
+    fetchTours(1)
+  }, [sidebarFiltersKey, fetchTours])
 
   const setToCountry = useCallback((countryId) => {
     setToCountryId(countryId)
@@ -336,6 +392,8 @@ export function ToursProvider({ children }) {
       toggleStar,
       selectedMealIds,
       toggleMeal,
+      sortBy,
+      setSortBy,
       clearFilters,
       removeFilter,
       hasSearched,
@@ -344,6 +402,8 @@ export function ToursProvider({ children }) {
       page,
       goToPage,
       results,
+      rawToursCount: rawTours.length,
+      displayFiltersActive,
       total,
       totalPages,
       loading,
@@ -382,6 +442,7 @@ export function ToursProvider({ children }) {
       selectedCityIds,
       selectedStarIds,
       selectedMealIds,
+      sortBy,
       setToCountry,
       toggleCity,
       toggleStar,
@@ -394,6 +455,8 @@ export function ToursProvider({ children }) {
       page,
       goToPage,
       results,
+      rawTours,
+      displayFiltersActive,
       total,
       totalPages,
       loading,
@@ -407,10 +470,11 @@ export function ToursProvider({ children }) {
   return <ToursContext.Provider value={value}>{children}</ToursContext.Provider>
 }
 
-export function useTours() {
+export const useTours = () => {
   const ctx = useContext(ToursContext)
   if (!ctx) {
     throw new Error('useTours ToursProvider ichida ishlatilishi kerak')
   }
   return ctx
 }
+
